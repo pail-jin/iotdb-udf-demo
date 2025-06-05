@@ -28,4 +28,5 @@ BEGIN
   SELECT hourly_diff(totalSum) 
   INTO root.sjgd.snnb.::(totalSumHourly)
   FROM root.sjgd.snnb.*
+  ALIGN BY DEVICE 
 END;
