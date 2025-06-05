@@ -27,5 +27,5 @@ RESAMPLE EVERY 1h RANGE 2h55m, 0m
 BEGIN
   SELECT hourly_diff(totalSum) 
   INTO root.sjgd.snnb.::(totalSumHourly)
-  FROM root.sjgd.snnb.*.totalSum
+  FROM root.sjgd.snnb.*
 END;
