@@ -21,9 +21,16 @@ import java.util.List;
 public class HourlyDiffUDF implements UDTF {
     private List<DataPoint> dataPoints = new ArrayList<>();
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+    private boolean debug = false;
     
     private void log(String message) {
         System.out.println("[HourlyDiffUDF] " + message);
+    }
+    
+    private void debugLog(String message) {
+        if (debug) {
+            System.out.println("[HourlyDiffUDF Debug] " + message);
+        }
     }
     
     @Override
@@ -36,8 +43,10 @@ public class HourlyDiffUDF implements UDTF {
     public void beforeStart(UDFParameters parameters, UDTFConfigurations configurations) throws Exception {
         configurations.setAccessStrategy(new RowByRowAccessStrategy())
                      .setOutputDataType(Type.DOUBLE);
+        // 从参数中获取debug开关
+        debug = parameters.getBooleanOrDefault("debug", false);
         log("=== UDF Started ===");
-        log("Parameters: " + parameters);
+        debugLog("Parameters: " + parameters);
     }
 
     @Override
@@ -46,10 +55,10 @@ public class HourlyDiffUDF implements UDTF {
             long timestamp = row.getTime();
             double value = row.getDouble(0);
             dataPoints.add(new DataPoint(timestamp, value));
-            log("=== New Data Point ===");
-            log("Raw timestamp: " + timestamp);
-            log("Time: " + LocalDateTime.ofEpochSecond(timestamp/1000, (int)((timestamp % 1000) * 1000000), ZoneOffset.UTC).format(formatter));
-            log("Value: " + value);
+            debugLog("=== New Data Point ===");
+            debugLog("Raw timestamp: " + timestamp);
+            debugLog("Time: " + LocalDateTime.ofEpochSecond(timestamp/1000, (int)((timestamp % 1000) * 1000000), ZoneOffset.UTC).format(formatter));
+            debugLog("Value: " + value);
         }
     }
 
@@ -64,27 +73,27 @@ public class HourlyDiffUDF implements UDTF {
         dataPoints.sort(Comparator.comparing(dp -> dp.timestamp));
         
         // 记录所有数据点
-        log("=== All Data Points ===");
+        debugLog("=== All Data Points ===");
         for (int i = 0; i < dataPoints.size(); i++) {
             DataPoint dp = dataPoints.get(i);
-            log("Point " + i + " - Raw timestamp: " + dp.timestamp);
-            log("Point " + i + " - Time: " + 
+            debugLog("Point " + i + " - Raw timestamp: " + dp.timestamp);
+            debugLog("Point " + i + " - Time: " + 
                 LocalDateTime.ofEpochSecond(dp.timestamp/1000, (int)((dp.timestamp % 1000) * 1000000), ZoneOffset.UTC).format(formatter) +
                 ", Value: " + dp.value);
         }
         
         // 记录数据点范围
-        log("=== Data Points Summary ===");
-        log("Total points: " + dataPoints.size());
-        log("Time range: " + 
+        debugLog("=== Data Points Summary ===");
+        debugLog("Total points: " + dataPoints.size());
+        debugLog("Time range: " + 
             LocalDateTime.ofEpochSecond(dataPoints.get(0).timestamp/1000, (int)((dataPoints.get(0).timestamp % 1000) * 1000000), ZoneOffset.UTC).format(formatter) +
             " to " +
             LocalDateTime.ofEpochSecond(dataPoints.get(dataPoints.size()-1).timestamp/1000, (int)((dataPoints.get(dataPoints.size()-1).timestamp % 1000) * 1000000), ZoneOffset.UTC).format(formatter));
         
         // 获取当前时间（使用UTC时区）
         LocalDateTime rawTime = LocalDateTime.now(ZoneOffset.UTC);
-        log("=== Raw Current Time ===");
-        log("Raw time: " + rawTime.format(formatter));
+        debugLog("=== Raw Current Time ===");
+        debugLog("Raw time: " + rawTime.format(formatter));
         
         // 计算最近的整点时间（考虑30秒容差）
         LocalDateTime currentTime;
@@ -106,10 +115,10 @@ public class HourlyDiffUDF implements UDTF {
         LocalDateTime tenOClock = currentTime.minusHours(1);  // 前一个整点
         LocalDateTime nineOClock = tenOClock.minusHours(1);   // 再前一个整点
         
-        log("=== Target Time Points ===");
-        log("Current time: " + currentTime.format(formatter));
-        log("Ten o'clock: " + tenOClock.format(formatter));
-        log("Nine o'clock: " + nineOClock.format(formatter));
+        debugLog("=== Target Time Points ===");
+        debugLog("Current time: " + currentTime.format(formatter));
+        debugLog("Ten o'clock: " + tenOClock.format(formatter));
+        debugLog("Nine o'clock: " + nineOClock.format(formatter));
         
         // 插值计算整点值
         Double nineValue = interpolateValue(nineOClock.toInstant(ZoneOffset.UTC).toEpochMilli());
@@ -121,7 +130,6 @@ public class HourlyDiffUDF implements UDTF {
             log("Nine o'clock value: " + nineValue);
             log("Ten o'clock value: " + tenValue);
             log("Difference: " + diff);
-            // 使用10:00:00的时间戳记录结果
             collector.putDouble(tenOClock.toInstant(ZoneOffset.UTC).toEpochMilli(), diff);
         } else {
             log("=== Interpolation Failed ===");
@@ -132,14 +140,14 @@ public class HourlyDiffUDF implements UDTF {
 
     private Double interpolateValue(long targetTime) {
         if (dataPoints.size() < 2) {
-            log("=== Not Enough Points for Interpolation ===");
-            log("Required: 2, Got: " + dataPoints.size());
+            debugLog("=== Not Enough Points for Interpolation ===");
+            debugLog("Required: 2, Got: " + dataPoints.size());
             return null;
         }
         
-        log("=== Starting Interpolation ===");
-        log("Target time: " + LocalDateTime.ofEpochSecond(targetTime/1000, (int)((targetTime % 1000) * 1000000), ZoneOffset.UTC).format(formatter));
-        log("Using " + dataPoints.size() + " data points");
+        debugLog("=== Starting Interpolation ===");
+        debugLog("Target time: " + LocalDateTime.ofEpochSecond(targetTime/1000, (int)((targetTime % 1000) * 1000000), ZoneOffset.UTC).format(formatter));
+        debugLog("Using " + dataPoints.size() + " data points");
         
         try {
             // 按时间戳排序
@@ -161,12 +169,12 @@ public class HourlyDiffUDF implements UDTF {
             // 计算插值结果
             double result = spline.value(targetTime);
             
-            log("=== Interpolation Complete ===");
-            log("Result: " + result);
+            debugLog("=== Interpolation Complete ===");
+            debugLog("Result: " + result);
             return result;
         } catch (Exception e) {
-            log("=== Interpolation Failed ===");
-            log("Error: " + e.getMessage());
+            debugLog("=== Interpolation Failed ===");
+            debugLog("Error: " + e.getMessage());
             return null;
         }
     }
