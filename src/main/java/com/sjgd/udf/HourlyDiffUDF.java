@@ -47,7 +47,8 @@ public class HourlyDiffUDF implements UDTF {
             double value = row.getDouble(0);
             dataPoints.add(new DataPoint(timestamp, value));
             log("=== New Data Point ===");
-            log("Time: " + LocalDateTime.ofEpochSecond(timestamp/1000, 0, ZoneOffset.UTC).format(formatter));
+            log("Raw timestamp: " + timestamp);
+            log("Time: " + LocalDateTime.ofEpochSecond(timestamp/1000, (int)((timestamp % 1000) * 1000000), ZoneOffset.UTC).format(formatter));
             log("Value: " + value);
         }
     }
@@ -66,8 +67,9 @@ public class HourlyDiffUDF implements UDTF {
         log("=== All Data Points ===");
         for (int i = 0; i < dataPoints.size(); i++) {
             DataPoint dp = dataPoints.get(i);
+            log("Point " + i + " - Raw timestamp: " + dp.timestamp);
             log("Point " + i + " - Time: " + 
-                LocalDateTime.ofEpochSecond(dp.timestamp/1000, 0, ZoneOffset.UTC).format(formatter) +
+                LocalDateTime.ofEpochSecond(dp.timestamp/1000, (int)((dp.timestamp % 1000) * 1000000), ZoneOffset.UTC).format(formatter) +
                 ", Value: " + dp.value);
         }
         
@@ -75,15 +77,30 @@ public class HourlyDiffUDF implements UDTF {
         log("=== Data Points Summary ===");
         log("Total points: " + dataPoints.size());
         log("Time range: " + 
-            LocalDateTime.ofEpochSecond(dataPoints.get(0).timestamp/1000, 0, ZoneOffset.UTC).format(formatter) +
+            LocalDateTime.ofEpochSecond(dataPoints.get(0).timestamp/1000, (int)((dataPoints.get(0).timestamp % 1000) * 1000000), ZoneOffset.UTC).format(formatter) +
             " to " +
-            LocalDateTime.ofEpochSecond(dataPoints.get(dataPoints.size()-1).timestamp/1000, 0, ZoneOffset.UTC).format(formatter));
+            LocalDateTime.ofEpochSecond(dataPoints.get(dataPoints.size()-1).timestamp/1000, (int)((dataPoints.get(dataPoints.size()-1).timestamp % 1000) * 1000000), ZoneOffset.UTC).format(formatter));
         
-        // 获取当前时间并取整点
-        LocalDateTime currentTime = LocalDateTime.now(ZoneOffset.UTC)
-            .withMinute(0)
-            .withSecond(0)
-            .withNano(0);
+        // 获取当前时间（使用UTC时区）
+        LocalDateTime rawTime = LocalDateTime.now(ZoneOffset.UTC);
+        log("=== Raw Current Time ===");
+        log("Raw time: " + rawTime.format(formatter));
+        
+        // 计算最近的整点时间（考虑30秒容差）
+        LocalDateTime currentTime;
+        if (rawTime.getMinute() == 59 && rawTime.getSecond() >= 30) {
+            // 如果当前时间在59分30秒之后，认为是下一个整点
+            currentTime = rawTime.plusHours(1)
+                .withMinute(0)
+                .withSecond(0)
+                .withNano(0);
+        } else {
+            // 否则认为是当前整点
+            currentTime = rawTime
+                .withMinute(0)
+                .withSecond(0)
+                .withNano(0);
+        }
         
         // 计算目标整点时间
         LocalDateTime tenOClock = currentTime.minusHours(1);  // 前一个整点
@@ -104,6 +121,7 @@ public class HourlyDiffUDF implements UDTF {
             log("Nine o'clock value: " + nineValue);
             log("Ten o'clock value: " + tenValue);
             log("Difference: " + diff);
+            // 使用10:00:00的时间戳记录结果
             collector.putDouble(tenOClock.toInstant(ZoneOffset.UTC).toEpochMilli(), diff);
         } else {
             log("=== Interpolation Failed ===");
@@ -120,7 +138,7 @@ public class HourlyDiffUDF implements UDTF {
         }
         
         log("=== Starting Interpolation ===");
-        log("Target time: " + LocalDateTime.ofEpochSecond(targetTime/1000, 0, ZoneOffset.UTC).format(formatter));
+        log("Target time: " + LocalDateTime.ofEpochSecond(targetTime/1000, (int)((targetTime % 1000) * 1000000), ZoneOffset.UTC).format(formatter));
         log("Using " + dataPoints.size() + " data points");
         
         try {
