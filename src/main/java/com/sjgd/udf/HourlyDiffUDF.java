@@ -7,6 +7,9 @@ import org.apache.iotdb.udf.api.customizer.parameter.UDFParameterValidator;
 import org.apache.iotdb.udf.api.customizer.parameter.UDFParameters;
 import org.apache.iotdb.udf.api.customizer.strategy.RowByRowAccessStrategy;
 import org.apache.iotdb.udf.api.type.Type;
+import org.apache.commons.math3.analysis.interpolation.LinearInterpolator;
+import org.apache.commons.math3.analysis.polynomials.PolynomialSplineFunction;
+import org.apache.commons.math3.analysis.interpolation.SplineInterpolator;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -119,39 +122,35 @@ public class HourlyDiffUDF implements UDTF {
         log("=== Starting Interpolation ===");
         log("Target time: " + LocalDateTime.ofEpochSecond(targetTime/1000, 0, ZoneOffset.UTC).format(formatter));
         log("Using " + dataPoints.size() + " data points");
+        
+        try {
+            // 按时间戳排序
+            dataPoints.sort(Comparator.comparing(dp -> dp.timestamp));
             
-        double result = lagrangeInterpolate(dataPoints, targetTime);
-        log("=== Interpolation Complete ===");
-        log("Result: " + result);
-        return result;
-    }
-
-    private double lagrangeInterpolate(List<DataPoint> points, long targetTime) {
-        double result = 0.0;
-        log("=== Lagrange Interpolation Details ===");
-        log("Target time: " + LocalDateTime.ofEpochSecond(targetTime/1000, 0, ZoneOffset.UTC).format(formatter));
-        
-        for (int i = 0; i < points.size(); i++) {
-            double term = points.get(i).value;
-            log("--- Term " + i + " ---");
-            log("Base value: " + term);
-            log("Time: " + LocalDateTime.ofEpochSecond(points.get(i).timestamp/1000, 0, ZoneOffset.UTC).format(formatter));
-                
-            for (int j = 0; j < points.size(); j++) {
-                if (i != j) {
-                    double factor = (targetTime - points.get(j).timestamp) / 
-                                  (points.get(i).timestamp - points.get(j).timestamp);
-                    term *= factor;
-                    log("Factor for point " + j + ": " + factor);
-                }
+            // 准备数据点
+            double[] x = new double[dataPoints.size()];
+            double[] y = new double[dataPoints.size()];
+            
+            for (int i = 0; i < dataPoints.size(); i++) {
+                x[i] = dataPoints.get(i).timestamp;
+                y[i] = dataPoints.get(i).value;
             }
-            result += term;
-            log("Term " + i + " result: " + term);
+            
+            // 使用样条插值
+            SplineInterpolator interpolator = new SplineInterpolator();
+            PolynomialSplineFunction spline = interpolator.interpolate(x, y);
+            
+            // 计算插值结果
+            double result = spline.value(targetTime);
+            
+            log("=== Interpolation Complete ===");
+            log("Result: " + result);
+            return result;
+        } catch (Exception e) {
+            log("=== Interpolation Failed ===");
+            log("Error: " + e.getMessage());
+            return null;
         }
-        
-        log("=== Lagrange Final Result ===");
-        log("Result: " + result);
-        return result;
     }
 
     private static class DataPoint {
